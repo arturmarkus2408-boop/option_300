@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     
-    <!-- === БАЗОВЫЙ ПУТЬ ДЛЯ ПОДПАПКИ GITHUB PAGES === -->
+    <!-- Базовый путь GitHub Pages -->
     <base href="/option_300/">
 
-    <!-- === PWA МЕТА-ТЕГИ === -->
+    <!-- PWA мета -->
     <meta name="theme-color" content="#1f4e79">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,9 +17,15 @@
     <link rel="manifest" href="manifest.json">
 
     <title>Управление опционом | Отчёты за день и период</title>
+
     <!-- Chart.js и html2canvas -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- Firebase SDK (compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
     <style>
         * {
             box-sizing: border-box;
@@ -239,7 +245,7 @@
 </head>
 <body>
 <div class="container">
-    <!-- Шапка / Основная информация -->
+    <!-- Шапка -->
     <div class="card">
         <div class="card-header">
             <h2>📊 Опцион: 300 000 USD</h2>
@@ -267,7 +273,7 @@
         </div>
     </div>
 
-    <!-- Форма добавления операции (расход / доход) -->
+    <!-- Форма добавления -->
     <div class="card">
         <h3>➕ Добавить операцию</h3>
         <div class="form-row">
@@ -300,7 +306,7 @@
         </div>
     </div>
 
-    <!-- График динамики расходов и доходов по дням -->
+    <!-- График -->
     <div class="card">
         <div class="card-header">
             <h2>📈 График: динамика расходов и доходов</h2>
@@ -311,7 +317,7 @@
         </div>
     </div>
 
-    <!-- Таблица всех операций -->
+    <!-- Таблица -->
     <div class="card">
         <div class="flex-between">
             <h2>📋 История операций</h2>
@@ -329,7 +335,7 @@
         </div>
     </div>
 
-    <!-- Отчёт за период (или за один день) + снимок экрана -->
+    <!-- Отчёт -->
     <div class="card report-card" id="reportSection">
         <div class="card-header">
             <h2>📄 Отчёт за период / на конкретную дату + снимок экрана</h2>
@@ -355,27 +361,44 @@
     </div>
 </div>
 
-<!-- Регистрация Service Worker (после загрузки) -->
+<!-- Регистрация Service Worker -->
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./sw.js')  // относительный путь!
+            navigator.serviceWorker.register('./sw.js')
                 .then(reg => console.log('SW registered', reg.scope))
                 .catch(err => console.error('SW registration failed', err));
         });
     }
 </script>
 
+<!-- Firebase и основная логика -->
 <script>
-    // ---------- Глобальные данные ----------
-    const STORAGE_KEY = "optionTrackerData";
-    const OPTION_LIMIT = 300000; // 300 000 USD
+    // ========== КОНФИГУРАЦИЯ FIREBASE (ЗАМЕНИТЕ НА СВОИ ДАННЫЕ) ==========
+    const firebaseConfig = {
+        apiKey: "AIzaSyDZeP71NH0EspXpqfDEmNv3MmEuObhMJco",
+        authDomain: "option-300.firebaseapp.com",
+        projectId: "option-300",
+        storageBucket: "option-300.firebasestorage.app",
+        messagingSenderId: "496129083227",
+        appId: "1:496129083227:web:8a4d537d3c41b576c77c7e",
+        measurementId: "G-DCMNMKFLDL"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
 
-    let transactions = []; // каждый объект: { id, type, category, amount, date, note }
+    // Включаем офлайн-кеширование (автоматически работает без интернета)
+    db.enablePersistence({ synchronizeTabs: false })
+        .catch(err => console.warn('Offline persistence failed:', err));
 
+    const transactionsCollection = db.collection("transactions");
+
+    // ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
+    const OPTION_LIMIT = 300000;
+    let transactions = [];
     let chartInstance = null;
 
-    // DOM элементы
+    // DOM-элементы
     const totalDebtSpan = document.getElementById("totalDebtDisplay");
     const remainingSpan = document.getElementById("remainingOptionDisplay");
     const totalExpSpan = document.getElementById("totalExpensesSum");
@@ -389,45 +412,64 @@
     const reportDateTo = document.getElementById("reportDateTo");
     const reportContentDiv = document.getElementById("reportContent");
 
-    // Установим значения дат по умолчанию: последние 7 дней как пример
+    // Даты по умолчанию (последние 7 дней)
     const todayDate = new Date();
     const weekAgo = new Date();
     weekAgo.setDate(todayDate.getDate() - 6);
     reportDateFrom.value = weekAgo.toISOString().slice(0,10);
     reportDateTo.value = todayDate.toISOString().slice(0,10);
 
-    // Инициализация / загрузка из localStorage
-    function loadData() {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-            try {
-                transactions = JSON.parse(stored);
-            } catch(e) { transactions = []; }
+    // ========== РАБОТА С ДАННЫМИ ==========
+    async function loadFromFirestore() {
+        try {
+            const snapshot = await transactionsCollection.orderBy("date", "asc").get();
+            transactions = [];
+            snapshot.forEach(doc => {
+                transactions.push({ firestoreId: doc.id, ...doc.data() });
+            });
+            renderAll();
+        } catch (err) {
+            console.error("Не удалось загрузить данные из Firestore:", err);
+            // запасной вариант — localStorage
+            const backup = localStorage.getItem("backupTransactions");
+            if (backup) {
+                transactions = JSON.parse(backup);
+                renderAll();
+            }
         }
-        if (!transactions || transactions.length === 0) {
-            // демо-примеры для наглядности
-            transactions = [
-                { id: Date.now()+1, type: "expense", category: "Продукты", amount: 1250.00, date: "2026-05-01", note: "Супермаркет" },
-                { id: Date.now()+2, type: "expense", category: "Транспорт", amount: 320.50, date: "2026-05-02", note: "Такси" },
-                { id: Date.now()+3, type: "income", category: "Фриланс", amount: 800.00, date: "2026-05-02", note: "Проект" },
-                { id: Date.now()+4, type: "expense", category: "Кафе", amount: 45.00, date: "2026-05-03", note: "Обед" },
-                { id: Date.now()+5, type: "expense", category: "Аренда", amount: 2100.00, date: "2026-05-05", note: "Офис" },
-                { id: Date.now()+6, type: "income", category: "Зарплата", amount: 5000.00, date: "2026-05-05", note: "Основная работа" },
-                { id: Date.now()+7, type: "expense", category: "ИИ-агенты", amount: 500.00, date: "2026-05-07", note: "Подписка" },
-                { id: Date.now()+8, type: "income", category: "Дивиденды", amount: 120.00, date: "2026-05-06", note: "Инвестиции" }
-            ];
-            saveData();
-        }
-        renderAll();
     }
 
-    function saveData() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+    // Слушатель изменений в реальном времени
+    function listenToChanges() {
+        transactionsCollection.onSnapshot(snapshot => {
+            const remote = [];
+            snapshot.forEach(doc => remote.push({ firestoreId: doc.id, ...doc.data() }));
+            transactions = remote;
+            renderAll();
+            // Дополнительно сохраняем резервную копию в localStorage
+            localStorage.setItem("backupTransactions", JSON.stringify(remote));
+        });
     }
 
+    async function addTransactionToFirestore(transaction) {
+        const docRef = await transactionsCollection.add(transaction);
+        return docRef.id;
+    }
+
+    async function deleteTransactionFromFirestore(firestoreId) {
+        await transactionsCollection.doc(firestoreId).delete();
+    }
+
+    async function clearAllInFirestore() {
+        const batch = db.batch();
+        const snapshot = await transactionsCollection.get();
+        snapshot.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+    }
+
+    // ========== ВЫЧИСЛЕНИЯ ==========
     function computeTotals() {
-        let totalExpenses = 0;
-        let totalIncomes = 0;
+        let totalExpenses = 0, totalIncomes = 0;
         for (let t of transactions) {
             if (t.type === "expense") totalExpenses += t.amount;
             else totalIncomes += t.amount;
@@ -443,117 +485,55 @@
         totalExpSpan.innerText = totalExpenses.toFixed(2) + " $";
         totalIncSpan.innerText = totalIncomes.toFixed(2) + " $";
         remainingSpan.innerText = remaining.toFixed(2) + " $";
-        if (netDebt > OPTION_LIMIT) totalDebtSpan.style.color = "#b91c1c";
-        else totalDebtSpan.style.color = "#c44536";
-    }
-
-    function renderTable() {
-        if (transactions.length === 0) {
-            transactionsBody.innerHTML = `<tr><td colspan="6" style="text-align:center;">📭 Нет операций. Добавьте первую</td></tr>`;
-            return;
-        }
-        let html = "";
-        for (let t of transactions) {
-            const typeIcon = t.type === "expense" ? "🔻 Расход" : "🔺 Доход";
-            const typeClass = t.type === "expense" ? "style='color:#b45353;'" : "style='color:#2c7a47;'";
-            html += `<tr>
-                        <td ${typeClass}>${typeIcon}</td>
-                        <td>${escapeHtml(t.category) || "—"}</td>
-                        <td><strong>${t.amount.toFixed(2)} $</strong></td>
-                        <td>${t.date}</td>
-                        <td>${escapeHtml(t.note) || ""}</td>
-                        <td><button class="delete-btn" data-id="${t.id}">✖️</button></td>
-                     </tr>`;
-        }
-        transactionsBody.innerHTML = html;
-        document.querySelectorAll(".delete-btn").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const id = Number(btn.dataset.id);
-                deleteTransactionById(id);
-            });
-        });
+        totalDebtSpan.style.color = netDebt > OPTION_LIMIT ? "#b91c1c" : "#c44536";
     }
 
     function escapeHtml(str) {
         if (!str) return "";
-        return str.replace(/[&<>]/g, function(m) {
-            if(m === '&') return '&amp;';
-            if(m === '<') return '&lt;';
-            if(m === '>') return '&gt;';
-            return m;
+        return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m] || m);
+    }
+
+    function renderTable() {
+        if (transactions.length === 0) {
+            transactionsBody.innerHTML = `<tr><td colspan="6" style="text-align:center;">📭 Нет операций</td></tr>`;
+            return;
+        }
+        let html = "";
+        for (let t of transactions) {
+            const icon = t.type === "expense" ? "🔻 Расход" : "🔺 Доход";
+            const color = t.type === "expense" ? "#b45353" : "#2c7a47";
+            html += `<tr>
+                <td style="color:${color}">${icon}</td>
+                <td>${escapeHtml(t.category) || "—"}</td>
+                <td><strong>${t.amount.toFixed(2)} $</strong></td>
+                <td>${t.date}</td>
+                <td>${escapeHtml(t.note) || ""}</td>
+                <td><button class="delete-btn" data-firestore-id="${t.firestoreId}">✖️</button></td>
+            </tr>`;
+        }
+        transactionsBody.innerHTML = html;
+        document.querySelectorAll(".delete-btn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const fid = btn.dataset.firestoreId;
+                if (confirm("Удалить эту операцию?")) {
+                    await deleteTransactionFromFirestore(fid);
+                }
+            });
         });
     }
 
-    function addTransaction() {
-        const type = document.getElementById("transType").value;
-        let category = document.getElementById("transCategory").value.trim();
-        const amountRaw = document.getElementById("transAmount").value;
-        const date = document.getElementById("transDate").value;
-        let note = document.getElementById("transNote").value.trim();
-
-        if (!amountRaw || parseFloat(amountRaw) <= 0) {
-            alert("Введите корректную сумму (>0)");
-            return;
-        }
-        if (!date) {
-            alert("Укажите дату операции");
-            return;
-        }
-        if (category === "") {
-            category = type === "expense" ? "Прочие расходы" : "Прочие доходы";
-        }
-        const amount = parseFloat(amountRaw);
-        const newId = Date.now() + Math.random();
-
-        const newTransaction = {
-            id: newId,
-            type: type,
-            category: category,
-            amount: amount,
-            date: date,
-            note: note || ""
-        };
-        transactions.push(newTransaction);
-        saveData();
-        renderAll();
-        document.getElementById("transCategory").value = "";
-        document.getElementById("transAmount").value = "";
-        document.getElementById("transNote").value = "";
-    }
-
-    function deleteTransactionById(id) {
-        transactions = transactions.filter(t => t.id !== id);
-        saveData();
-        renderAll();
-    }
-
-    function clearAllTransactions() {
-        if (confirm("⚠️ Удалить ВСЕ операции? Восстановить будет невозможно.")) {
-            transactions = [];
-            saveData();
-            renderAll();
-        }
-    }
-
-    // ГРАФИК (по всем операциям)
     function getDailyAggregates() {
         const dailyMap = new Map();
         for (let t of transactions) {
-            const dateStr = t.date;
-            if (!dailyMap.has(dateStr)) {
-                dailyMap.set(dateStr, { expense: 0, income: 0 });
-            }
-            const entry = dailyMap.get(dateStr);
+            const d = t.date;
+            if (!dailyMap.has(d)) dailyMap.set(d, { expense: 0, income: 0 });
+            const entry = dailyMap.get(d);
             if (t.type === "expense") entry.expense += t.amount;
             else entry.income += t.amount;
         }
         const sortedDates = Array.from(dailyMap.keys()).sort();
-        const expenseData = [];
-        const incomeData = [];
-        for (let d of sortedDates) {
-            expenseData.push(dailyMap.get(d).expense);
-            incomeData.push(dailyMap.get(d).income);
-        }
+        const expenseData = sortedDates.map(d => dailyMap.get(d).expense);
+        const incomeData = sortedDates.map(d => dailyMap.get(d).income);
         return { labels: sortedDates, expenseData, incomeData };
     }
 
@@ -564,10 +544,13 @@
         if (labels.length === 0) {
             chartInstance = new Chart(ctx, {
                 type: 'bar',
-                data: { labels: ['Нет данных'], datasets: [
-                    { label: 'Расходы ($)', data: [0], backgroundColor: '#e67e22', borderRadius: 8 },
-                    { label: 'Доходы ($)', data: [0], backgroundColor: '#27ae60', borderRadius: 8 }
-                ] },
+                data: {
+                    labels: ['Нет данных'],
+                    datasets: [
+                        { label: 'Расходы ($)', data: [0], backgroundColor: '#e67e22', borderRadius: 8 },
+                        { label: 'Доходы ($)', data: [0], backgroundColor: '#27ae60', borderRadius: 8 }
+                    ]
+                },
                 options: { responsive: true, maintainAspectRatio: true }
             });
             return;
@@ -596,107 +579,116 @@
         });
     }
 
-    // ОТЧЁТ ЗА ПЕРИОД (диапазон дат)
     function generatePeriodReport() {
-        const dateFromStr = reportDateFrom.value;
-        const dateToStr = reportDateTo.value;
-        if (!dateFromStr || !dateToStr) {
-            alert("Пожалуйста, укажите обе даты: начало и конец периода.");
-            return;
-        }
-        if (dateFromStr > dateToStr) {
-            alert("Дата начала не может быть позже даты окончания.");
-            return;
-        }
-
-        const filtered = transactions.filter(t => t.date >= dateFromStr && t.date <= dateToStr);
-        let totalExpensePeriod = 0, totalIncomePeriod = 0;
-        const rowsHtml = [];
+        const from = reportDateFrom.value, to = reportDateTo.value;
+        if (!from || !to) { alert("Укажите обе даты"); return; }
+        if (from > to) { alert("Дата начала позже даты окончания"); return; }
+        const filtered = transactions.filter(t => t.date >= from && t.date <= to);
+        let totalExp = 0, totalInc = 0;
+        let rows = "";
         for (let t of filtered) {
-            if (t.type === "expense") totalExpensePeriod += t.amount;
-            else totalIncomePeriod += t.amount;
-            const typeSymb = t.type === "expense" ? "🔻 Расход" : "🔺 Доход";
-            rowsHtml.push(`<tr><td>${typeSymb}</td><td>${escapeHtml(t.category)}</td><td>${t.amount.toFixed(2)} $</td><td>${t.date}</td><td>${escapeHtml(t.note || '—')}</td></tr>`);
+            if (t.type === "expense") totalExp += t.amount; else totalInc += t.amount;
+            const sym = t.type === "expense" ? "🔻 Расход" : "🔺 Доход";
+            rows += `<tr><td>${sym}</td><td>${escapeHtml(t.category)}</td><td>${t.amount.toFixed(2)} $</td><td>${t.date}</td><td>${escapeHtml(t.note) || '—'}</td></tr>`;
         }
-        const netPeriod = totalExpensePeriod - totalIncomePeriod;
-        const operationCount = filtered.length;
-        let reportHtml = `<div style="background:#fdfaf0; border-radius: 20px; padding: 12px;">
-                            <h4>📆 Отчёт за период: ${dateFromStr} — ${dateToStr}</h4>
-                            <div style="display:flex; gap: 20px; flex-wrap:wrap; margin-bottom: 20px;">
-                                <span style="background:#ffeee5; padding:6px 14px; border-radius:28px;">🔻 Расходы: ${totalExpensePeriod.toFixed(2)} $</span>
-                                <span style="background:#e0f2e9; padding:6px 14px; border-radius:28px;">🔺 Доходы: ${totalIncomePeriod.toFixed(2)} $</span>
-                                <span style="background:#e9eef3; padding:6px 14px; border-radius:28px;">⚖️ Сальдо (долг/профицит): ${netPeriod.toFixed(2)} $</span>
-                                <span style="background:#e2e3e8; padding:6px 14px; border-radius:28px;">📌 Кол-во операций: ${operationCount}</span>
-                            </div>`;
+        const net = totalExp - totalInc;
+        let html = `<div style="background:#fdfaf0; border-radius:20px; padding:12px;">
+            <h4>📆 Отчёт: ${from} — ${to}</h4>
+            <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:20px;">
+                <span style="background:#ffeee5; padding:6px 14px; border-radius:28px;">🔻 Расходы: ${totalExp.toFixed(2)} $</span>
+                <span style="background:#e0f2e9; padding:6px 14px; border-radius:28px;">🔺 Доходы: ${totalInc.toFixed(2)} $</span>
+                <span style="background:#e9eef3; padding:6px 14px; border-radius:28px;">⚖️ Сальдо: ${net.toFixed(2)} $</span>
+                <span style="background:#e2e3e8; padding:6px 14px; border-radius:28px;">📌 Операций: ${filtered.length}</span>
+            </div>`;
         if (filtered.length === 0) {
-            reportHtml += `<p>✨ Нет операций за выбранный период.</p>`;
+            html += `<p>✨ Нет операций за выбранный период.</p>`;
         } else {
-            reportHtml += `<div class="scroll-table"><table style="width:100%; background:white; border-radius: 16px;">
-                            <thead><tr><th>Тип</th><th>Вид</th><th>Сумма</th><th>Дата</th><th>Примечание</th></tr></thead>
-                            <tbody>${rowsHtml.join('')}</tbody>
-                         </table></div>`;
+            html += `<div class="scroll-table"><table style="width:100%; background:white; border-radius:16px;">
+                <thead><tr><th>Тип</th><th>Вид</th><th>Сумма</th><th>Дата</th><th>Примечание</th></tr></thead>
+                <tbody>${rows}</tbody></table></div>`;
         }
-        reportHtml += `<p style="font-size:0.75rem; margin-top:12px;">📌 Динамика периода: ${netPeriod >= 0 ? 'превышение расходов' : 'превышение доходов'}</p></div>`;
-        reportContentDiv.innerHTML = reportHtml;
+        html += `<p style="font-size:0.75rem; margin-top:12px;">📌 Динамика: ${net >= 0 ? 'превышение расходов' : 'превышение доходов'}</p></div>`;
+        reportContentDiv.innerHTML = html;
     }
 
-    // Снимок экрана области отчёта (сохраняет текущее состояние отчёта)
     async function takeScreenshotOfReport() {
-        const reportElement = document.getElementById("reportContent");
-        if (!reportElement) return;
-        const originalBg = reportElement.style.background;
-        reportElement.style.background = "#fffef7";
+        const el = document.getElementById("reportContent");
+        if (!el) return;
+        const origBg = el.style.background;
+        el.style.background = "#fffef7";
         try {
-            const canvas = await html2canvas(reportElement, {
-                scale: 2,
-                backgroundColor: "#fffef7",
-                logging: false,
-                useCORS: false
-            });
-            const fromDate = reportDateFrom.value || "начало";
-            const toDate = reportDateTo.value || "конец";
+            const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#fffef7", logging: false });
             const link = document.createElement('a');
-            link.download = `snapshot_option_${fromDate}_to_${toDate}.png`;
+            link.download = `snapshot_${reportDateFrom.value || 'all'}_${reportDateTo.value || 'all'}.png`;
             link.href = canvas.toDataURL();
             link.click();
-        } catch (err) {
-            alert("Ошибка при создании снимка: " + err);
+        } catch (e) {
+            alert("Ошибка снимка: " + e);
         } finally {
-            reportElement.style.background = originalBg;
+            el.style.background = origBg;
         }
     }
 
-    // Полный рендер всего UI
     function renderAll() {
         updateMetricsUI();
         renderTable();
         renderChart();
-        // Автоматически обновляем отчёт, если были заданы даты (чтобы всегда показывать актуальный отчёт после изменений)
         if (reportDateFrom.value && reportDateTo.value) {
             generatePeriodReport();
         } else {
-            reportContentDiv.innerHTML = `<p style="color: #6b7280;">🔍 Выберите диапазон дат (или одинаковые даты для одного дня) и нажмите «Сформировать отчёт».</p>`;
+            reportContentDiv.innerHTML = `<p style="color:#6b7280;">🔍 Выберите диапазон дат и нажмите «Сформировать отчёт».</p>`;
         }
     }
 
-    // События
+    async function addTransaction() {
+        const type = document.getElementById("transType").value;
+        let category = document.getElementById("transCategory").value.trim();
+        const amountRaw = document.getElementById("transAmount").value;
+        const date = document.getElementById("transDate").value;
+        let note = document.getElementById("transNote").value.trim();
+
+        if (!amountRaw || parseFloat(amountRaw) <= 0) { alert("Введите сумму >0"); return; }
+        if (!date) { alert("Укажите дату"); return; }
+        if (!category) category = type === "expense" ? "Прочие расходы" : "Прочие доходы";
+        const amount = parseFloat(amountRaw);
+
+        const tx = {
+            type: type,
+            category: category,
+            amount: amount,
+            date: date,
+            note: note || "",
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        try {
+            await addTransactionToFirestore(tx);
+            document.getElementById("transCategory").value = "";
+            document.getElementById("transAmount").value = "";
+            document.getElementById("transNote").value = "";
+        } catch (err) {
+            alert("Ошибка добавления. Проверьте интернет.");
+        }
+    }
+
     addBtn.addEventListener("click", addTransaction);
-    clearAllBtn.addEventListener("click", clearAllTransactions);
+    clearAllBtn.addEventListener("click", async () => {
+        if (confirm("⚠️ Удалить ВСЕ операции?")) {
+            await clearAllInFirestore();
+        }
+    });
     generatePeriodBtn.addEventListener("click", generatePeriodReport);
     screenshotReportBtn.addEventListener("click", takeScreenshotOfReport);
 
-    // При загрузке страницы
-    loadData();
-
-    // Если даты не заданы, подставим последние 7 дней (но после загрузки они уже есть)
-    if (!reportDateFrom.value || !reportDateTo.value) {
-        const now = new Date();
-        const prevWeek = new Date();
-        prevWeek.setDate(now.getDate() - 6);
-        reportDateFrom.value = prevWeek.toISOString().slice(0,10);
-        reportDateTo.value = now.toISOString().slice(0,10);
-        generatePeriodReport();
-    }
+    // Запуск
+    (async () => {
+        await loadFromFirestore();
+        listenToChanges(); // будет автоматически обновляться при изменениях
+        // Запасной localStorage (сохраняем при каждом чихе)
+        window.addEventListener('beforeunload', () => {
+            localStorage.setItem("backupTransactions", JSON.stringify(transactions));
+        });
+    })();
 </script>
 </body>
 </html>
