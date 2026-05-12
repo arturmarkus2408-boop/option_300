@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    
+    <!-- === БАЗОВЫЙ ПУТЬ ДЛЯ ПОДПАПКИ GITHUB PAGES === -->
+    <base href="/option/">
+
+    <!-- === PWA МЕТА-ТЕГИ === -->
+    <meta name="theme-color" content="#1f4e79">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Опцион">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="manifest" href="manifest.json">
+
+    <title>Управление опционом | Отчёты за день и период</title>
+    <!-- Chart.js и html2canvas -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: system-ui, 'Segoe UI', 'Inter', 'Roboto', sans-serif;
+        }
+        body {
+            background: #f0f2f8;
+            margin: 0;
+            padding: 24px 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 28px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+            padding: 20px 24px;
+            margin-bottom: 28px;
+            transition: all 0.2s;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+            border-bottom: 2px solid #eef2ff;
+            padding-bottom: 12px;
+        }
+        .card-header h2 {
+            margin: 0;
+            font-size: 1.6rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #1e2b5c, #2c3e66);
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+        }
+        .badge-option {
+            background: #e9ecef;
+            padding: 6px 14px;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #1a3e60;
+        }
+        .metrics-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 8px;
+        }
+        .metric {
+            flex: 1;
+            min-width: 160px;
+            background: #f8fafc;
+            border-radius: 24px;
+            padding: 16px 18px;
+            border: 1px solid #e2edf2;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+        .metric-label {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+            color: #5a687c;
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #0f2b3d;
+            margin-top: 8px;
+            word-break: break-word;
+        }
+        .metric-value small {
+            font-size: 1rem;
+            font-weight: 400;
+        }
+        .debt {
+            color: #c44536;
+        }
+        .credit {
+            color: #2b7e3a;
+        }
+        .form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            align-items: flex-end;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            flex: 1;
+            min-width: 130px;
+        }
+        .input-group label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #2c3e66;
+            margin-bottom: 6px;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 12px;
+            border-radius: 16px;
+            border: 1px solid #cfdfe8;
+            background: white;
+            font-size: 0.9rem;
+            transition: 0.2s;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #2c6e9e;
+            box-shadow: 0 0 0 3px rgba(44,110,158,0.2);
+        }
+        button {
+            background: #1f4e79;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 40px;
+            font-weight: 600;
+            color: white;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        button:hover {
+            background: #0e3a5c;
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background: #4b6e8a;
+        }
+        .btn-danger {
+            background: #aa5e5e;
+        }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid #1f4e79;
+            color: #1f4e79;
+        }
+        .btn-outline:hover {
+            background: #eef2ff;
+        }
+        .report-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        th, td {
+            padding: 12px 8px;
+            text-align: left;
+            border-bottom: 1px solid #e2edf2;
+        }
+        th {
+            background: #f1f5f9;
+            font-weight: 600;
+            color: #1f3b4c;
+        }
+        .delete-btn {
+            background: none;
+            border: none;
+            color: #c0392b;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 4px 8px;
+            box-shadow: none;
+        }
+        .delete-btn:hover {
+            background: #fee2e2;
+            transform: none;
+        }
+        .chart-container {
+            max-height: 320px;
+            margin-top: 12px;
+        }
+        .report-card {
+            background: #fefce8;
+            border-left: 5px solid #eab308;
+        }
+        .flex-between {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .scroll-table {
+            overflow-x: auto;
+        }
+        .date-range-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .date-range-group .input-group {
+            min-width: 150px;
+        }
+        @media (max-width: 700px) {
+            .metric-value { font-size: 1.5rem; }
+            .form-row .input-group { min-width: 100%; }
+            .date-range-group .input-group { min-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <!-- Шапка / Основная информация -->
+    <div class="card">
+        <div class="card-header">
+            <h2>📊 Опцион: 300 000 USD</h2>
+            <div class="badge-option">⚡ Управление долгом / расходами</div>
+        </div>
+        <div class="metrics-grid">
+            <div class="metric">
+                <div class="metric-label">📌 ОБЩАЯ СУММА ДОЛГА (расход − доход)</div>
+                <div class="metric-value debt" id="totalDebtDisplay">0 $</div>
+                <div style="font-size: 0.7rem;">расходы − доходы</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">💰 ОСТАЛОСЬ ОТ ОПЦИОНА</div>
+                <div class="metric-value credit" id="remainingOptionDisplay">300 000 $</div>
+                <div style="font-size: 0.7rem;">доступно после долга</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">📉 ВСЕГО РАСХОДОВ</div>
+                <div class="metric-value" id="totalExpensesSum">0 $</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">📈 ВСЕГО ДОХОДОВ</div>
+                <div class="metric-value" id="totalIncomeSum">0 $</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Форма добавления операции (расход / доход) -->
+    <div class="card">
+        <h3>➕ Добавить операцию</h3>
+        <div class="form-row">
+            <div class="input-group">
+                <label>Тип</label>
+                <select id="transType">
+                    <option value="expense">Расход ▼</option>
+                    <option value="income">Доход ▲</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label>Вид расхода / дохода</label>
+                <input type="text" id="transCategory" placeholder="например: Еда, Зарплата" autocomplete="off">
+            </div>
+            <div class="input-group">
+                <label>Сумма (USD)</label>
+                <input type="number" id="transAmount" step="0.01" min="0.01" placeholder="0.00">
+            </div>
+            <div class="input-group">
+                <label>Дата операции</label>
+                <input type="date" id="transDate">
+            </div>
+            <div class="input-group">
+                <label>Примечание</label>
+                <input type="text" id="transNote" placeholder="комментарий">
+            </div>
+            <div class="input-group" style="flex: 0.4;">
+                <button id="addTransactionBtn" style="width:100%; margin-top: 21px;">✅ Добавить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- График динамики расходов и доходов по дням -->
+    <div class="card">
+        <div class="card-header">
+            <h2>📈 График: динамика расходов и доходов</h2>
+            <span style="font-size:0.8rem;">по датам (все операции)</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="financeChart" width="400" height="200" style="max-height: 280px; width:100%"></canvas>
+        </div>
+    </div>
+
+    <!-- Таблица всех операций -->
+    <div class="card">
+        <div class="flex-between">
+            <h2>📋 История операций</h2>
+            <button id="clearAllBtn" class="btn-danger" style="background:#b91c1c;">🗑 Очистить всё</button>
+        </div>
+        <div class="scroll-table">
+            <table id="transactionsTable">
+                <thead>
+                    <tr><th>Тип</th><th>Вид</th><th>Сумма ($)</th><th>Дата</th><th>Примечание</th><th></th></tr>
+                </thead>
+                <tbody id="transactionsBody">
+                    <tr><td colspan="6" style="text-align:center;">Нет операций</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Отчёт за период (или за один день) + снимок экрана -->
+    <div class="card report-card" id="reportSection">
+        <div class="card-header">
+            <h2>📄 Отчёт за период / на конкретную дату + снимок экрана</h2>
+            <span>Укажите диапазон дат</span>
+        </div>
+        <div class="form-row date-range-group">
+            <div class="input-group">
+                <label>📅 Дата ОТ (начало)</label>
+                <input type="date" id="reportDateFrom">
+            </div>
+            <div class="input-group">
+                <label>📅 Дата ДО (конец)</label>
+                <input type="date" id="reportDateTo">
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="generatePeriodReportBtn" class="btn-secondary">📑 Сформировать отчёт</button>
+                <button id="screenshotReportBtn" style="background:#3b5c3a;">📸 Снимок экрана (отчёт)</button>
+            </div>
+        </div>
+        <div id="reportContent" style="margin-top: 20px; background: #fffff0; border-radius: 24px; padding: 16px; transition: all 0.1s;">
+            <p style="color: #6b7280;">🔍 Выберите диапазон дат (или одинаковые даты для одного дня) и нажмите «Сформировать отчёт».</p>
+        </div>
+    </div>
+</div>
+
+<!-- Регистрация Service Worker (после загрузки) -->
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')  // относительный путь!
+                .then(reg => console.log('SW registered', reg.scope))
+                .catch(err => console.error('SW registration failed', err));
+        });
+    }
+</script>
+
+<script>
+    // ---------- Глобальные данные ----------
+    const STORAGE_KEY = "optionTrackerData";
+    const OPTION_LIMIT = 300000; // 300 000 USD
+
+    let transactions = []; // каждый объект: { id, type, category, amount, date, note }
+
+    let chartInstance = null;
+
+    // DOM элементы
+    const totalDebtSpan = document.getElementById("totalDebtDisplay");
+    const remainingSpan = document.getElementById("remainingOptionDisplay");
+    const totalExpSpan = document.getElementById("totalExpensesSum");
+    const totalIncSpan = document.getElementById("totalIncomeSum");
+    const transactionsBody = document.getElementById("transactionsBody");
+    const addBtn = document.getElementById("addTransactionBtn");
+    const clearAllBtn = document.getElementById("clearAllBtn");
+    const generatePeriodBtn = document.getElementById("generatePeriodReportBtn");
+    const screenshotReportBtn = document.getElementById("screenshotReportBtn");
+    const reportDateFrom = document.getElementById("reportDateFrom");
+    const reportDateTo = document.getElementById("reportDateTo");
+    const reportContentDiv = document.getElementById("reportContent");
+
+    // Установим значения дат по умолчанию: последние 7 дней как пример
+    const todayDate = new Date();
+    const weekAgo = new Date();
+    weekAgo.setDate(todayDate.getDate() - 6);
+    reportDateFrom.value = weekAgo.toISOString().slice(0,10);
+    reportDateTo.value = todayDate.toISOString().slice(0,10);
+
+    // Инициализация / загрузка из localStorage
+    function loadData() {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+            try {
+                transactions = JSON.parse(stored);
+            } catch(e) { transactions = []; }
+        }
+        if (!transactions || transactions.length === 0) {
+            // демо-примеры для наглядности
+            transactions = [
+                { id: Date.now()+1, type: "expense", category: "Продукты", amount: 1250.00, date: "2026-05-01", note: "Супермаркет" },
+                { id: Date.now()+2, type: "expense", category: "Транспорт", amount: 320.50, date: "2026-05-02", note: "Такси" },
+                { id: Date.now()+3, type: "income", category: "Фриланс", amount: 800.00, date: "2026-05-02", note: "Проект" },
+                { id: Date.now()+4, type: "expense", category: "Кафе", amount: 45.00, date: "2026-05-03", note: "Обед" },
+                { id: Date.now()+5, type: "expense", category: "Аренда", amount: 2100.00, date: "2026-05-05", note: "Офис" },
+                { id: Date.now()+6, type: "income", category: "Зарплата", amount: 5000.00, date: "2026-05-05", note: "Основная работа" },
+                { id: Date.now()+7, type: "expense", category: "ИИ-агенты", amount: 500.00, date: "2026-05-07", note: "Подписка" },
+                { id: Date.now()+8, type: "income", category: "Дивиденды", amount: 120.00, date: "2026-05-06", note: "Инвестиции" }
+            ];
+            saveData();
+        }
+        renderAll();
+    }
+
+    function saveData() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+    }
+
+    function computeTotals() {
+        let totalExpenses = 0;
+        let totalIncomes = 0;
+        for (let t of transactions) {
+            if (t.type === "expense") totalExpenses += t.amount;
+            else totalIncomes += t.amount;
+        }
+        const netDebt = totalExpenses - totalIncomes;
+        const remaining = OPTION_LIMIT - netDebt;
+        return { totalExpenses, totalIncomes, netDebt, remaining: remaining < 0 ? 0 : remaining };
+    }
+
+    function updateMetricsUI() {
+        const { totalExpenses, totalIncomes, netDebt, remaining } = computeTotals();
+        totalDebtSpan.innerText = netDebt.toFixed(2) + " $";
+        totalExpSpan.innerText = totalExpenses.toFixed(2) + " $";
+        totalIncSpan.innerText = totalIncomes.toFixed(2) + " $";
+        remainingSpan.innerText = remaining.toFixed(2) + " $";
+        if (netDebt > OPTION_LIMIT) totalDebtSpan.style.color = "#b91c1c";
+        else totalDebtSpan.style.color = "#c44536";
+    }
+
+    function renderTable() {
+        if (transactions.length === 0) {
+            transactionsBody.innerHTML = `<tr><td colspan="6" style="text-align:center;">📭 Нет операций. Добавьте первую</td></tr>`;
+            return;
+        }
+        let html = "";
+        for (let t of transactions) {
+            const typeIcon = t.type === "expense" ? "🔻 Расход" : "🔺 Доход";
+            const typeClass = t.type === "expense" ? "style='color:#b45353;'" : "style='color:#2c7a47;'";
+            html += `<tr>
+                        <td ${typeClass}>${typeIcon}</td>
+                        <td>${escapeHtml(t.category) || "—"}</td>
+                        <td><strong>${t.amount.toFixed(2)} $</strong></td>
+                        <td>${t.date}</td>
+                        <td>${escapeHtml(t.note) || ""}</td>
+                        <td><button class="delete-btn" data-id="${t.id}">✖️</button></td>
+                     </tr>`;
+        }
+        transactionsBody.innerHTML = html;
+        document.querySelectorAll(".delete-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const id = Number(btn.dataset.id);
+                deleteTransactionById(id);
+            });
+        });
+    }
+
+    function escapeHtml(str) {
+        if (!str) return "";
+        return str.replace(/[&<>]/g, function(m) {
+            if(m === '&') return '&amp;';
+            if(m === '<') return '&lt;';
+            if(m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    function addTransaction() {
+        const type = document.getElementById("transType").value;
+        let category = document.getElementById("transCategory").value.trim();
+        const amountRaw = document.getElementById("transAmount").value;
+        const date = document.getElementById("transDate").value;
+        let note = document.getElementById("transNote").value.trim();
+
+        if (!amountRaw || parseFloat(amountRaw) <= 0) {
+            alert("Введите корректную сумму (>0)");
+            return;
+        }
+        if (!date) {
+            alert("Укажите дату операции");
+            return;
+        }
+        if (category === "") {
+            category = type === "expense" ? "Прочие расходы" : "Прочие доходы";
+        }
+        const amount = parseFloat(amountRaw);
+        const newId = Date.now() + Math.random();
+
+        const newTransaction = {
+            id: newId,
+            type: type,
+            category: category,
+            amount: amount,
+            date: date,
+            note: note || ""
+        };
+        transactions.push(newTransaction);
+        saveData();
+        renderAll();
+        document.getElementById("transCategory").value = "";
+        document.getElementById("transAmount").value = "";
+        document.getElementById("transNote").value = "";
+    }
+
+    function deleteTransactionById(id) {
+        transactions = transactions.filter(t => t.id !== id);
+        saveData();
+        renderAll();
+    }
+
+    function clearAllTransactions() {
+        if (confirm("⚠️ Удалить ВСЕ операции? Восстановить будет невозможно.")) {
+            transactions = [];
+            saveData();
+            renderAll();
+        }
+    }
+
+    // ГРАФИК (по всем операциям)
+    function getDailyAggregates() {
+        const dailyMap = new Map();
+        for (let t of transactions) {
+            const dateStr = t.date;
+            if (!dailyMap.has(dateStr)) {
+                dailyMap.set(dateStr, { expense: 0, income: 0 });
+            }
+            const entry = dailyMap.get(dateStr);
+            if (t.type === "expense") entry.expense += t.amount;
+            else entry.income += t.amount;
+        }
+        const sortedDates = Array.from(dailyMap.keys()).sort();
+        const expenseData = [];
+        const incomeData = [];
+        for (let d of sortedDates) {
+            expenseData.push(dailyMap.get(d).expense);
+            incomeData.push(dailyMap.get(d).income);
+        }
+        return { labels: sortedDates, expenseData, incomeData };
+    }
+
+    function renderChart() {
+        const { labels, expenseData, incomeData } = getDailyAggregates();
+        const ctx = document.getElementById("financeChart").getContext("2d");
+        if (chartInstance) chartInstance.destroy();
+        if (labels.length === 0) {
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: { labels: ['Нет данных'], datasets: [
+                    { label: 'Расходы ($)', data: [0], backgroundColor: '#e67e22', borderRadius: 8 },
+                    { label: 'Доходы ($)', data: [0], backgroundColor: '#27ae60', borderRadius: 8 }
+                ] },
+                options: { responsive: true, maintainAspectRatio: true }
+            });
+            return;
+        }
+        chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'Расходы ($)', data: expenseData, backgroundColor: '#e67e22', borderRadius: 6 },
+                    { label: 'Доходы ($)', data: incomeData, backgroundColor: '#2c9c5c', borderRadius: 6 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw.toFixed(2)} $` } },
+                    legend: { position: 'top' }
+                },
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'Сумма (USD)' } },
+                    x: { title: { display: true, text: 'Дата' }, ticks: { maxRotation: 45, autoSkip: true } }
+                }
+            }
+        });
+    }
+
+    // ОТЧЁТ ЗА ПЕРИОД (диапазон дат)
+    function generatePeriodReport() {
+        const dateFromStr = reportDateFrom.value;
+        const dateToStr = reportDateTo.value;
+        if (!dateFromStr || !dateToStr) {
+            alert("Пожалуйста, укажите обе даты: начало и конец периода.");
+            return;
+        }
+        if (dateFromStr > dateToStr) {
+            alert("Дата начала не может быть позже даты окончания.");
+            return;
+        }
+
+        const filtered = transactions.filter(t => t.date >= dateFromStr && t.date <= dateToStr);
+        let totalExpensePeriod = 0, totalIncomePeriod = 0;
+        const rowsHtml = [];
+        for (let t of filtered) {
+            if (t.type === "expense") totalExpensePeriod += t.amount;
+            else totalIncomePeriod += t.amount;
+            const typeSymb = t.type === "expense" ? "🔻 Расход" : "🔺 Доход";
+            rowsHtml.push(`<tr><td>${typeSymb}</td><td>${escapeHtml(t.category)}</td><td>${t.amount.toFixed(2)} $</td><td>${t.date}</td><td>${escapeHtml(t.note || '—')}</td></tr>`);
+        }
+        const netPeriod = totalExpensePeriod - totalIncomePeriod;
+        const operationCount = filtered.length;
+        let reportHtml = `<div style="background:#fdfaf0; border-radius: 20px; padding: 12px;">
+                            <h4>📆 Отчёт за период: ${dateFromStr} — ${dateToStr}</h4>
+                            <div style="display:flex; gap: 20px; flex-wrap:wrap; margin-bottom: 20px;">
+                                <span style="background:#ffeee5; padding:6px 14px; border-radius:28px;">🔻 Расходы: ${totalExpensePeriod.toFixed(2)} $</span>
+                                <span style="background:#e0f2e9; padding:6px 14px; border-radius:28px;">🔺 Доходы: ${totalIncomePeriod.toFixed(2)} $</span>
+                                <span style="background:#e9eef3; padding:6px 14px; border-radius:28px;">⚖️ Сальдо (долг/профицит): ${netPeriod.toFixed(2)} $</span>
+                                <span style="background:#e2e3e8; padding:6px 14px; border-radius:28px;">📌 Кол-во операций: ${operationCount}</span>
+                            </div>`;
+        if (filtered.length === 0) {
+            reportHtml += `<p>✨ Нет операций за выбранный период.</p>`;
+        } else {
+            reportHtml += `<div class="scroll-table"><table style="width:100%; background:white; border-radius: 16px;">
+                            <thead><tr><th>Тип</th><th>Вид</th><th>Сумма</th><th>Дата</th><th>Примечание</th></tr></thead>
+                            <tbody>${rowsHtml.join('')}</tbody>
+                         </table></div>`;
+        }
+        reportHtml += `<p style="font-size:0.75rem; margin-top:12px;">📌 Динамика периода: ${netPeriod >= 0 ? 'превышение расходов' : 'превышение доходов'}</p></div>`;
+        reportContentDiv.innerHTML = reportHtml;
+    }
+
+    // Снимок экрана области отчёта (сохраняет текущее состояние отчёта)
+    async function takeScreenshotOfReport() {
+        const reportElement = document.getElementById("reportContent");
+        if (!reportElement) return;
+        const originalBg = reportElement.style.background;
+        reportElement.style.background = "#fffef7";
+        try {
+            const canvas = await html2canvas(reportElement, {
+                scale: 2,
+                backgroundColor: "#fffef7",
+                logging: false,
+                useCORS: false
+            });
+            const fromDate = reportDateFrom.value || "начало";
+            const toDate = reportDateTo.value || "конец";
+            const link = document.createElement('a');
+            link.download = `snapshot_option_${fromDate}_to_${toDate}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        } catch (err) {
+            alert("Ошибка при создании снимка: " + err);
+        } finally {
+            reportElement.style.background = originalBg;
+        }
+    }
+
+    // Полный рендер всего UI
+    function renderAll() {
+        updateMetricsUI();
+        renderTable();
+        renderChart();
+        // Автоматически обновляем отчёт, если были заданы даты (чтобы всегда показывать актуальный отчёт после изменений)
+        if (reportDateFrom.value && reportDateTo.value) {
+            generatePeriodReport();
+        } else {
+            reportContentDiv.innerHTML = `<p style="color: #6b7280;">🔍 Выберите диапазон дат (или одинаковые даты для одного дня) и нажмите «Сформировать отчёт».</p>`;
+        }
+    }
+
+    // События
+    addBtn.addEventListener("click", addTransaction);
+    clearAllBtn.addEventListener("click", clearAllTransactions);
+    generatePeriodBtn.addEventListener("click", generatePeriodReport);
+    screenshotReportBtn.addEventListener("click", takeScreenshotOfReport);
+
+    // При загрузке страницы
+    loadData();
+
+    // Если даты не заданы, подставим последние 7 дней (но после загрузки они уже есть)
+    if (!reportDateFrom.value || !reportDateTo.value) {
+        const now = new Date();
+        const prevWeek = new Date();
+        prevWeek.setDate(now.getDate() - 6);
+        reportDateFrom.value = prevWeek.toISOString().slice(0,10);
+        reportDateTo.value = now.toISOString().slice(0,10);
+        generatePeriodReport();
+    }
+</script>
+</body>
+</html>

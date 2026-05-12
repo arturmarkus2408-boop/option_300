@@ -1,0 +1,25 @@
+{
+  "name": "Управление опционом",
+  "short_name": "Опцион",
+  "description": "Трекер расходов и доходов на основе опциона 300 000 USD",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f0f2f8",
+  "theme_color": "#1f4e79",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "lang": "ru"
+}
